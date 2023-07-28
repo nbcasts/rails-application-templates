@@ -193,6 +193,9 @@ CODE
 
 after_bundle do
   rails_command "tailwindcss:install"
+  rails_command "generate rspec:install"
+
+  run "mkdir spec/suite"
 
   git :init
   git add: "."
