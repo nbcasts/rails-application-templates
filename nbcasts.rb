@@ -1,5 +1,6 @@
 gem "awesome_print"
-gem "tailwindcss-rails"
+gem "tailwindcss-rails" unless options["css"] == "tailwind" # ~> NameError: undefined local variable or method `options' for main:Object
+gem "faker", require: false
 
 gem_group :development do
   gem "rubocop"
@@ -8,6 +9,22 @@ end
 gem_group :development, :test do
   gem "rspec-rails"
 end
+
+rails_command "tailwindcss:install"
+rails_command "generate rspec:install"
+rails_command "turbo:install:redis"
+
+file "mkdir spec/suite/a_spec.rb", <<~CODE
+  # frozen_string_literal: true
+
+  require "rails_helper"
+
+  RSpec.describe "Something" do
+    it "does something" do
+      expect(true).to eq(true)
+    end
+  end
+CODE
 
 file ".rubocop.yml", <<~CODE
   ---
@@ -110,11 +127,16 @@ file "docker-compose.yml", <<~CODE
         - '8025:8025'
       volumes:
         - mailhog:/home/mailhog
+    redis:
+      image: redis:latest
+      volumes:
+        - redis-data:/data
 
   volumes:
     bundler:
     mailhog:
     pg-data:
+    redis-data:
 CODE
 
 file "Dockerfile", <<~CODE
@@ -192,16 +214,38 @@ file "script/docker-entrypoint-development.sh", <<~CODE
 CODE
 
 after_bundle do
-  rails_command "tailwindcss:install"
-  rails_command "generate rspec:install"
+  generate(:scaffold, "user username:string email:string admin:boolean")
+  route 'root to: "users#index"'
 
-  run "mkdir spec/suite"
+  number_of_users = 25
 
+  append_to_file "db/seeds.rb", <<~CODE
+      require "awesome_print"
+      require "faker"
+
+      puts "Creating admin".blue
+      User.create!(username: "admin", email: "admin@example.com", admin: true)
+
+      puts "Creating users".blue
+      #{number_of_users}.times do
+      print ".".yellow
+        User.create!(Faker::Internet.user('username', 'email'))
+      end
+      puts
+  CODE
+
+  rails_command("db:migrate")
+  run "rails db:seed"
+end
+
+# This goes last
+after_bundle do
   git :init
   git add: "."
   git commit: %Q{ -m 'Initial commit' }
 end
 
-generate(:scaffold, "user name:string")
-rails_command("db:migrate")
-route 'root to: "users#index"'
+# ~> NameError
+# ~> undefined local variable or method `options' for main:Object
+# ~>
+# ~> xmptmp-inCN0yrS.rb:2:in `<main>'
