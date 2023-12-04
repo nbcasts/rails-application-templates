@@ -1,18 +1,17 @@
+# frozen_string_literal: true
+
 gem "awesome_print"
-gem "tailwindcss-rails" unless options["css"] == "tailwind" # ~> NameError: undefined local variable or method `options' for main:Object
-gem "faker", require: false
+gem "tailwindcss-rails" unless options["css"] == "tailwind"
+gem "phlex-rails"
 
 gem_group :development do
+  gem "guard-livereload", require: false
   gem "rubocop"
 end
 
 gem_group :development, :test do
   gem "rspec-rails"
 end
-
-rails_command "tailwindcss:install"
-rails_command "generate rspec:install"
-rails_command "turbo:install:redis"
 
 file "mkdir spec/suite/a_spec.rb", <<~CODE
   # frozen_string_literal: true
@@ -28,30 +27,68 @@ CODE
 
 file ".rubocop.yml", <<~CODE
   ---
+
+  require:
+  - rubocop-rails
+  - rubocop-rake
+
   AllCops:
     NewCops: enable
     ExtraDetails: false
     Exclude:
-      - ".git/**/*"
-      - "bin/**/*"
-      - "tmp/**/*"
-      - "sandbox/**/*"
-      - "sandbox/**/*"
-      - "db/**/*.rb"
+    - ".git/**/*"
+    - bin/**/*
+    - tmp/**/*
+    - sandbox/**/*
+    - sandbox/**/*
+    - db/**/*.rb
 
   Layout/HashAlignment:
     EnforcedColonStyle: table
     EnforcedHashRocketStyle: table
 
+  Layout/LineLength:
+    Exclude:
+    - app/views/**/*
+
   Lint/MissingSuper:
     Enabled: false
 
+  Metrics/AbcSize:
+    Exclude:
+    - app/views/**/*.rb
+    - db/migrate/**/*.rb
+
+  Metrics/BlockLength:
+    Enabled: false
+
+  Metrics/MethodLength:
+    Exclude:
+    - app/views/**/*.rb
+
+  Rails/Output:
+    Exclude:
+    - app/views/**/*.rb
+
+  Rails/RakeEnvironment:
+    Enabled: false
+
+  Style/AccessorGrouping:
+    EnforcedStyle: separated
+
   Style/BlockDelimiters:
     EnforcedStyle: semantic
-    BracesRequiredMethods: ['let', 'let!']
+    Exclude:
+    - app/views/**/*
+    BracesRequiredMethods:
+    - let
+    - let!
 
   Style/Documentation:
     Enabled: false
+
+  Style/EmptyMethod:
+    EnforcedStyle: expanded
 
   Style/FrozenStringLiteralComment:
     Enabled: true
@@ -62,6 +99,10 @@ file ".rubocop.yml", <<~CODE
 
   Style/KeywordParametersOrder:
     Enabled: false
+
+  Style/RedundantInitialize:
+    Exclude:
+    - app/views/**/*.rb
 
   Style/StringLiterals:
     EnforcedStyle: double_quotes
@@ -74,6 +115,9 @@ file ".rubocop.yml", <<~CODE
 
   Style/TrailingCommaInHashLiteral:
     EnforcedStyleForMultiline: consistent_comma
+
+  Style/TrivialAccessors:
+    Enabled: false
 CODE
 
 file "docker-compose.yml", <<~CODE
@@ -91,7 +135,6 @@ file "docker-compose.yml", <<~CODE
       - "host.docker.internal:host-gateway"
     stdin_open: true
     tty: true
-    # entrypoint: script/docker-entrypoint-development.sh
     volumes:
       - .:/app
       - bundler:/bundler
@@ -100,42 +143,39 @@ file "docker-compose.yml", <<~CODE
     web:
       <<: [*build-common, *app-common]
       depends_on:
-        - database
         - tailwind
       command: bundle exec rails s -b 0.0.0.0
       ports:
         - "3000:3000"
+      environment:
+        ENVIRONMENT: development
+        HISTFILE: /app/.zsh_history
+        REDIS_URL: redis://redis:6379/0
+
+    guard:
+      <<: [*build-common, *app-common]
+      depends_on:
+        - web
+      command: bundle exec guard
+      ports:
+        - "35729:35729"
 
     tailwind:
       <<: [*build-common, *app-common]
       command: bundle exec bin/rails tailwindcss:watch
-
-    database:
-      image: postgres:latest
       environment:
-        POSTGRES_PASSWORD: postgres
-      ports:
-        - '5432:5432'
-      volumes:
-        - pg-data:/var/lib/postgresql/data
-    mailer:
-      image: mailhog/mailhog
-      environment:
-        MH_STORAGE: maildir
-        MH_MAILDIR_PATH: /home/mailhog
-      ports:
-        - '8025:8025'
-      volumes:
-        - mailhog:/home/mailhog
+        REDIS_URL: redis://redis:6379/0
+  #{' '}
     redis:
       image: redis:latest
       volumes:
         - redis-data:/data
+      ports:
+        - '6379:6379'
 
   volumes:
     bundler:
     mailhog:
-    pg-data:
     redis-data:
 CODE
 
@@ -214,38 +254,15 @@ file "script/docker-entrypoint-development.sh", <<~CODE
 CODE
 
 after_bundle do
-  generate(:scaffold, "user username:string email:string admin:boolean")
-  route 'root to: "users#index"'
-
-  number_of_users = 25
-
-  append_to_file "db/seeds.rb", <<~CODE
-      require "awesome_print"
-      require "faker"
-
-      puts "Creating admin".blue
-      User.create!(username: "admin", email: "admin@example.com", admin: true)
-
-      puts "Creating users".blue
-      #{number_of_users}.times do
-      print ".".yellow
-        User.create!(Faker::Internet.user('username', 'email'))
-      end
-      puts
-  CODE
-
-  rails_command("db:migrate")
-  run "rails db:seed"
+  rails_command "tailwindcss:install"
+  rails_command "generate rspec:install"
+  rails_command "turbo:install:redis"
+  rails_command "generate phlex:install"
 end
 
 # This goes last
 after_bundle do
   git :init
   git add: "."
-  git commit: %Q{ -m 'Initial commit' }
+  git commit: %( -m 'Initial commit' )
 end
-
-# ~> NameError
-# ~> undefined local variable or method `options' for main:Object
-# ~>
-# ~> xmptmp-inCN0yrS.rb:2:in `<main>'
